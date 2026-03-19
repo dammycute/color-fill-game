@@ -52,7 +52,7 @@ export default function Leaderboard({ roomId, currentUsername }) {
       return a.totalMoves - b.totalMoves
     })
 
-    setEntries(entries)
+    setEntries(entries.slice(0, 15))
     setLoading(false)
   }
 

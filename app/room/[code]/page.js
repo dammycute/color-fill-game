@@ -63,13 +63,21 @@ export default function GameRoomPage() {
     // Verify room is still active
     fetch(`/api/rooms?code=${code}`)
       .then(r => r.json())
-      .then(data => {
+      .then(async data => {
         if (data.error) { router.push('/'); return }
         if (!data.is_active || new Date(data.expires_at) < new Date()) {
           setRoomClosed(true)
           setLoading(false)
           return
         }
+
+        // Ensure we are in the players table (re-join if refreshed)
+        await fetch('/api/join', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: data.code, username: storedUsername }),
+        })
+
         setRoom(data)
         setPlayerCount(data.playerCount)
         setLoading(false)
@@ -132,6 +140,17 @@ export default function GameRoomPage() {
     }
   }, [roomId, username])
 
+  const handleLeave = useCallback(async () => {
+    if (!roomId || !username) return
+    // Use sendBeacon or keepalive fetch for reliability on close
+    fetch('/api/leave', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roomId, username }),
+      keepalive: true
+    })
+  }, [roomId, username])
+
   const handleCloseRoom = async () => {
     if (!confirm('Close this room for everyone? This cannot be undone.')) return
     setClosing(true)
@@ -142,6 +161,16 @@ export default function GameRoomPage() {
     })
     router.push('/')
   }
+
+  // Cleanup on unmount/close
+  useEffect(() => {
+    const onUnload = () => { handleLeave() }
+    window.addEventListener('beforeunload', onUnload)
+    return () => {
+      window.removeEventListener('beforeunload', onUnload)
+      handleLeave()
+    }
+  }, [handleLeave])
 
   if (loading) return (
     <div style={{
