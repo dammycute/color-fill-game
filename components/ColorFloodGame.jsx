@@ -93,11 +93,11 @@ export default function ColorFloodGame({ roomCode, username, onLevelComplete, on
   const { grid: GRID_SIZE, maxMoves: MAX_MOVES, colors: NUM_COLORS } = config
 
   useEffect(() => {
-    setGrid(generateGrid(GRID_SIZE, NUM_COLORS))
+    setGrid(generateGrid(GRID_SIZE, NUM_COLORS, roomCode + levelIndex))
     setMoves(0)
     setGameState('playing')
     setLastColor(null)
-  }, [levelIndex, GRID_SIZE, NUM_COLORS])
+  }, [levelIndex, GRID_SIZE, NUM_COLORS, roomCode])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -156,7 +156,7 @@ export default function ColorFloodGame({ roomCode, username, onLevelComplete, on
     }
   }
   const handleReplay = () => {
-    setGrid(generateGrid(GRID_SIZE, NUM_COLORS))
+    setGrid(generateGrid(GRID_SIZE, NUM_COLORS, roomCode + levelIndex))
     setMoves(0)
     setGameState('playing')
     setLastColor(null)
