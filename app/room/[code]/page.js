@@ -142,10 +142,6 @@ export default function GameRoomPage() {
 
   const handleLeave = useCallback(async () => {
     if (!roomId || !username) return
-    // Clear room-specific state
-    localStorage.removeItem('cf_room_code')
-    localStorage.removeItem('cf_room_id')
-    localStorage.removeItem('cf_is_creator')
     
     // Use sendBeacon or keepalive fetch for reliability on close
     fetch('/api/leave', {
@@ -156,6 +152,13 @@ export default function GameRoomPage() {
     })
   }, [roomId, username])
 
+  const handleLobby = useCallback(() => {
+    localStorage.removeItem('cf_room_code')
+    localStorage.removeItem('cf_room_id')
+    localStorage.removeItem('cf_is_creator')
+    router.push('/')
+  }, [router])
+
   const handleCloseRoom = async () => {
     if (!confirm('Close this room for everyone? This cannot be undone.')) return
     setClosing(true)
@@ -164,7 +167,7 @@ export default function GameRoomPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ roomId, username }),
     })
-    router.push('/')
+    handleLobby()
   }
 
   // Cleanup on unmount/close
@@ -298,7 +301,7 @@ export default function GameRoomPage() {
             roomCode={code}
             username={username}
             onLevelComplete={handleLevelComplete}
-            onMenu={() => router.push('/')}
+            onMenu={handleLobby}
           />
         </div>
 
