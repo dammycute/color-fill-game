@@ -92,8 +92,50 @@ export default function ColorFloodGame({ roomCode, username, onLevelComplete, on
   const [gameState, setGameState] = useState('playing')
   const [lastColor, setLastColor] = useState(null)
   const [poppedCells, setPoppedCells] = useState(new Set())
+  const [showTutorial, setShowTutorial] = useState(false)
   const containerRef = useRef(null)
   const [containerWidth, setContainerWidth] = useState(0)
+
+  // Robust measurement logic
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    
+    const measure = () => {
+      if (containerRef.current) {
+        setContainerWidth(containerRef.current.offsetWidth)
+      }
+    }
+
+    // Initial measure
+    measure()
+
+    // Observer for dynamic changes
+    const ro = new ResizeObserver(entries => {
+      if (entries[0]) {
+        const width = entries[0].contentRect.width || entries[0].target.offsetWidth
+        if (width > 0) setContainerWidth(width)
+      }
+    })
+    
+    if (containerRef.current) ro.observe(containerRef.current)
+    
+    window.addEventListener('resize', measure)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', measure)
+    }
+  }, [])
+
+  // Initialize tutorial state from localStorage
+  useEffect(() => {
+    const tutorialSeen = localStorage.getItem('cf_tutorial_done')
+    if (!tutorialSeen) setShowTutorial(true)
+  }, [])
+
+  const dismissTutorial = () => {
+    setShowTutorial(false)
+    localStorage.setItem('cf_tutorial_done', '1')
+  }
 
   const config = LEVELS[Math.min(levelIndex, LEVELS.length - 1)]
   const { grid: GRID_SIZE, maxMoves: MAX_MOVES, colors: NUM_COLORS } = config
@@ -106,25 +148,8 @@ export default function ColorFloodGame({ roomCode, username, onLevelComplete, on
   }, [levelIndex, GRID_SIZE, NUM_COLORS, roomCode])
 
   const cellSize = containerWidth > 0
-    ? Math.max(Math.floor((Math.min(containerWidth, 480) - 24) / GRID_SIZE), GRID_SIZE > 30 ? 4 : 8)
+    ? Math.max(Math.floor((Math.min(containerWidth, 480) - 24) / GRID_SIZE), 6)
     : 0
-
-  useEffect(() => {
-    if (!containerRef.current) return
-    
-    // Initial measure
-    if (containerRef.current.offsetWidth > 0) {
-      setContainerWidth(containerRef.current.offsetWidth)
-    }
-
-    const ro = new ResizeObserver(entries => {
-      if (entries[0] && entries[0].contentRect) {
-        setContainerWidth(entries[0].contentRect.width)
-      }
-    })
-    ro.observe(containerRef.current)
-    return () => ro.disconnect()
-  }, [])
 
   const handleColorPick = useCallback((colorIdx) => {
     if (gameState !== 'playing' || !grid) return
@@ -230,9 +255,50 @@ export default function ColorFloodGame({ roomCode, username, onLevelComplete, on
                 transform: poppedCells.has(`${r},${c}`) ? 'scale(0.82)' : 'scale(1)',
                 transition: 'transform 0.12s ease, background 0.08s ease',
                 borderRadius: cellSize > 20 ? 2 : 0,
-              }} />
+                position: 'relative',
+              }}>
+                {/* Tutorial pulse on top-left */}
+                {r === 0 && c === 0 && showTutorial && moves === 0 && (
+                  <div style={{
+                    position: 'absolute', inset: 0,
+                    border: '2px solid rgba(255,255,255,0.8)',
+                    borderRadius: 'inherit',
+                    animation: 'pulse-border 1.5s infinite ease-in-out',
+                    zIndex: 2,
+                  }} />
+                )}
+              </div>
             ))
           )}
+        </div>
+      )}
+
+      {/* Tutorial Tooltip */}
+      {showTutorial && moves === 0 && (
+        <div style={{
+          position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+          background: 'rgba(26,26,46,0.95)', border: '1px solid rgba(52,152,219,0.3)',
+          borderRadius: 16, padding: '20px 24px', zIndex: 100,
+          width: '85%', maxWidth: 300, textAlign: 'center',
+          boxShadow: '0 10px 40px rgba(0,0,0,0.8)',
+          backdropFilter: 'blur(10px)',
+          animation: 'fadeInScale 0.4s ease forwards',
+        }}>
+          <div style={{ fontSize: 24, marginBottom: 12 }}>🎮</div>
+          <div style={{ fontFamily: 'Orbitron, monospace', color: '#fff', fontSize: 13, fontWeight: 900, marginBottom: 10, letterSpacing: 2 }}>
+            HOW TO PLAY
+          </div>
+          <p style={{ color: '#9CA3AF', fontSize: 12, lineHeight: 1.6, marginBottom: 16 }}>
+            Tap colors below to change the <strong style={{ color: '#3498DB' }}>top-left</strong> cell and its matching neighbors. Fill the board with one color!
+          </p>
+          <button onClick={dismissTutorial} style={{
+            background: '#3498DB', color: '#fff', border: 'none',
+            borderRadius: 8, padding: '8px 24px', fontSize: 11,
+            fontWeight: 800, cursor: 'pointer', letterSpacing: 1,
+            fontFamily: 'Orbitron, monospace',
+          }}>
+            GOT IT!
+          </button>
         </div>
       )}
 
