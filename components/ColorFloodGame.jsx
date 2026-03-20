@@ -80,6 +80,12 @@ const secondaryBtn = {
 }
 
 export default function ColorFloodGame({ roomCode, username, onLevelComplete, onMenu }) {
+  const handleMenuClick = () => {
+    if (window.confirm('Leave this room? Your session will be cleared.')) {
+      onMenu()
+    }
+  }
+
   const [levelIndex, setLevelIndex] = useState(0)
   const [grid, setGrid] = useState(null)
   const [moves, setMoves] = useState(0)
@@ -99,18 +105,26 @@ export default function ColorFloodGame({ roomCode, username, onLevelComplete, on
     setLastColor(null)
   }, [levelIndex, GRID_SIZE, NUM_COLORS, roomCode])
 
+  const cellSize = containerWidth > 0
+    ? Math.max(Math.floor((Math.min(containerWidth, 480) - 24) / GRID_SIZE), GRID_SIZE > 30 ? 4 : 8)
+    : 0
+
   useEffect(() => {
     if (!containerRef.current) return
+    
+    // Initial measure
+    if (containerRef.current.offsetWidth > 0) {
+      setContainerWidth(containerRef.current.offsetWidth)
+    }
+
     const ro = new ResizeObserver(entries => {
-      setContainerWidth(entries[0].contentRect.width)
+      if (entries[0] && entries[0].contentRect) {
+        setContainerWidth(entries[0].contentRect.width)
+      }
     })
     ro.observe(containerRef.current)
     return () => ro.disconnect()
   }, [])
-
-  const cellSize = containerWidth > 0
-    ? Math.max(Math.floor((Math.min(containerWidth, 480) - 24) / GRID_SIZE), GRID_SIZE > 30 ? 4 : 8)
-    : 0
 
   const handleColorPick = useCallback((colorIdx) => {
     if (gameState !== 'playing' || !grid) return
@@ -174,7 +188,7 @@ export default function ColorFloodGame({ roomCode, username, onLevelComplete, on
     }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: 8 }}>
-        <button onClick={onMenu} style={{
+        <button onClick={handleMenuClick} style={{
           background: '#1A1A2E', border: '1px solid rgba(255,255,255,0.06)',
           borderRadius: 8, padding: '6px 12px', color: '#6B7280',
           fontSize: 12, cursor: 'pointer', flexShrink: 0,
@@ -266,13 +280,13 @@ export default function ColorFloodGame({ roomCode, username, onLevelComplete, on
           moves={moves}
           maxMoves={MAX_MOVES}
           onNext={handleNext}
-          onMenu={onMenu}
+          onMenu={handleMenuClick}
           onReplay={handleReplay}
           isLastLevel={isLastLevel}
         />
       )}
       {gameState === 'lost' && (
-        <LoseScreen level={levelIndex + 1} onReplay={handleReplay} onMenu={onMenu} />
+        <LoseScreen level={levelIndex + 1} onReplay={handleReplay} onMenu={handleMenuClick} />
       )}
     </div>
   )

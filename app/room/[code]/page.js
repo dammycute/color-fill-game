@@ -142,6 +142,11 @@ export default function GameRoomPage() {
 
   const handleLeave = useCallback(async () => {
     if (!roomId || !username) return
+    // Clear room-specific state
+    localStorage.removeItem('cf_room_code')
+    localStorage.removeItem('cf_room_id')
+    localStorage.removeItem('cf_is_creator')
+    
     // Use sendBeacon or keepalive fetch for reliability on close
     fetch('/api/leave', {
       method: 'POST',
@@ -289,7 +294,7 @@ export default function GameRoomPage() {
           display: 'flex', flexDirection: 'column',
         }}>
           <ColorFloodGame
-            key={gameKey}
+            key={`${code}-${gameKey}`}
             roomCode={code}
             username={username}
             onLevelComplete={handleLevelComplete}
