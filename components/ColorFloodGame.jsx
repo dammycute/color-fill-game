@@ -1,6 +1,97 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { COLORS, LEVELS, generateGrid, floodFill, isBoardFilled, deepCopy, calcStars } from '@/lib/gameLogic'
+
+function TutorialModal({ onDismiss }) {
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
+  if (!mounted) return null
+
+  return createPortal(
+    <>
+      {/* Light backdrop — transparent enough to still see the pulsing board cell */}
+      <div
+        onClick={onDismiss}
+        style={{
+          position: 'fixed', inset: 0,
+          background: 'rgba(0,0,0,0.35)',
+          zIndex: 9998,
+        }}
+      />
+      {/* Modal — attached to document.body so no parent transform can offset it */}
+      <div style={{
+        position: 'fixed',
+        top: '50%',
+        left: '50%',
+        transform: 'translate(-50%, -50%)',
+        width: 'min(320px, 88vw)',
+        background: 'rgba(22,24,46,0.97)',
+        border: '1px solid rgba(52,152,219,0.35)',
+        borderRadius: 18,
+        padding: '28px 24px 24px',
+        zIndex: 9999,
+        textAlign: 'center',
+        boxShadow: '0 16px 64px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04)',
+        backdropFilter: 'blur(16px)',
+        animation: 'fadeInScale 0.35s cubic-bezier(0.16,1,0.3,1) forwards',
+      }}>
+        <div style={{ fontSize: 32, marginBottom: 10 }}>🎮</div>
+        <div style={{
+          fontFamily: 'Orbitron, monospace',
+          color: '#fff',
+          fontSize: 13,
+          fontWeight: 900,
+          marginBottom: 12,
+          letterSpacing: 2,
+        }}>
+          HOW TO PLAY
+        </div>
+        <p style={{
+          color: '#9CA3AF',
+          fontSize: 13,
+          lineHeight: 1.75,
+          marginBottom: 22,
+          padding: '0 4px',
+        }}>
+          Tap colors below to change the{' '}
+          <strong style={{ color: '#3498DB' }}>top-left</strong>{' '}
+          cell and all its matching neighbors.
+          <br />
+          Fill the entire board with one color!
+        </p>
+        <button
+          onClick={onDismiss}
+          style={{
+            background: 'linear-gradient(135deg, #3498DB, #2471A3)',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 10,
+            padding: '11px 32px',
+            fontSize: 12,
+            fontWeight: 800,
+            cursor: 'pointer',
+            letterSpacing: 1.5,
+            fontFamily: 'Orbitron, monospace',
+            boxShadow: '0 4px 20px rgba(52,152,219,0.45)',
+            transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.transform = 'translateY(-2px)'
+            e.currentTarget.style.boxShadow = '0 8px 28px rgba(52,152,219,0.55)'
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.transform = 'translateY(0)'
+            e.currentTarget.style.boxShadow = '0 4px 20px rgba(52,152,219,0.45)'
+          }}
+        >
+          GOT IT!
+        </button>
+      </div>
+    </>,
+    document.body
+  )
+}
 
 function WinScreen({ level, moves, maxMoves, onNext, onMenu, onReplay, isLastLevel }) {
   const stars = calcStars(moves, maxMoves)
@@ -32,11 +123,11 @@ function WinScreen({ level, moves, maxMoves, onNext, onMenu, onReplay, isLastLev
       <div style={{ color: '#6B7280', fontSize: 13, letterSpacing: 1 }}>
         {moves} / {maxMoves} moves used
       </div>
-      {isLastLevel ? (
+      {isLastLevel && (
         <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.5)', fontSize: 13, maxWidth: 260 }}>
           You've completed all {LEVELS.length} levels! Check the leaderboard.
         </div>
-      ) : null}
+      )}
       <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
         <button onClick={onReplay} style={secondaryBtn}>↺ Retry</button>
         {!isLastLevel && <button onClick={onNext} style={primaryBtn}>Next →</button>}
@@ -94,10 +185,9 @@ export default function ColorFloodGame({ roomCode, username, onLevelComplete, on
   const [poppedCells, setPoppedCells] = useState(new Set())
   const [showTutorial, setShowTutorial] = useState(false)
   const containerRef = useRef(null)
-  // FIX 1: Start with a sensible default so the grid renders immediately
+  // Default to 340 so grid is never blank on first render
   const [containerWidth, setContainerWidth] = useState(340)
 
-  // Robust measurement logic
   useEffect(() => {
     if (typeof window === 'undefined') return
 
@@ -108,7 +198,6 @@ export default function ColorFloodGame({ roomCode, username, onLevelComplete, on
       }
     }
 
-    // Initial measure — defer slightly so layout is complete
     const raf = requestAnimationFrame(measure)
 
     const ro = new ResizeObserver(entries => {
@@ -119,8 +208,8 @@ export default function ColorFloodGame({ roomCode, username, onLevelComplete, on
     })
 
     if (containerRef.current) ro.observe(containerRef.current)
-
     window.addEventListener('resize', measure)
+
     return () => {
       cancelAnimationFrame(raf)
       ro.disconnect()
@@ -128,7 +217,6 @@ export default function ColorFloodGame({ roomCode, username, onLevelComplete, on
     }
   }, [])
 
-  // Initialize tutorial state from localStorage
   useEffect(() => {
     const tutorialSeen = localStorage.getItem('cf_tutorial_done')
     if (!tutorialSeen) setShowTutorial(true)
@@ -149,7 +237,6 @@ export default function ColorFloodGame({ roomCode, username, onLevelComplete, on
     setLastColor(null)
   }, [levelIndex, GRID_SIZE, NUM_COLORS, roomCode])
 
-  // FIX 1 cont: No longer gate on containerWidth > 0 since we have a default
   const cellSize = Math.max(Math.floor((Math.min(containerWidth, 480) - 24) / GRID_SIZE), 6)
 
   const handleColorPick = useCallback((colorIdx) => {
@@ -190,6 +277,7 @@ export default function ColorFloodGame({ roomCode, username, onLevelComplete, on
       setGameState('playing')
     }
   }
+
   const handleReplay = () => {
     setGrid(generateGrid(GRID_SIZE, NUM_COLORS, roomCode + levelIndex))
     setMoves(0)
@@ -207,6 +295,11 @@ export default function ColorFloodGame({ roomCode, username, onLevelComplete, on
       position: 'relative', display: 'flex', flexDirection: 'column',
       alignItems: 'center', gap: 12, width: '100%', padding: '12px 0',
     }}>
+      {/* Tutorial — rendered via portal into document.body, guaranteed viewport-centered */}
+      {showTutorial && moves === 0 && (
+        <TutorialModal onDismiss={dismissTutorial} />
+      )}
+
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: 8, padding: '0 12px' }}>
         <button onClick={handleMenuClick} style={{
@@ -214,7 +307,10 @@ export default function ColorFloodGame({ roomCode, username, onLevelComplete, on
           borderRadius: 8, padding: '6px 12px', color: '#6B7280',
           fontSize: 12, cursor: 'pointer', flexShrink: 0,
         }}>← Lobby</button>
-        <div style={{ flex: 1, textAlign: 'center', fontFamily: 'Orbitron, monospace', fontSize: 13, fontWeight: 700, color: '#fff', letterSpacing: 3 }}>
+        <div style={{
+          flex: 1, textAlign: 'center', fontFamily: 'Orbitron, monospace',
+          fontSize: 13, fontWeight: 700, color: '#fff', letterSpacing: 3,
+        }}>
           LEVEL {levelIndex + 1}
         </div>
         <div style={{
@@ -235,7 +331,7 @@ export default function ColorFloodGame({ roomCode, username, onLevelComplete, on
         }} />
       </div>
 
-      {/* Grid — always renders now that cellSize is never 0 */}
+      {/* Grid */}
       {grid && (
         <div style={{
           display: 'grid',
@@ -253,14 +349,14 @@ export default function ColorFloodGame({ roomCode, username, onLevelComplete, on
                 borderRadius: cellSize > 20 ? 2 : 0,
                 position: 'relative',
               }}>
-                {/* Tutorial pulse on top-left */}
                 {r === 0 && c === 0 && showTutorial && moves === 0 && (
                   <div style={{
                     position: 'absolute', inset: 0,
-                    border: '2px solid rgba(255,255,255,0.8)',
+                    border: '2px solid rgba(255,255,255,0.9)',
                     borderRadius: 'inherit',
                     animation: 'pulse-border 1.5s infinite ease-in-out',
                     zIndex: 2,
+                    pointerEvents: 'none',
                   }} />
                 )}
               </div>
@@ -269,87 +365,38 @@ export default function ColorFloodGame({ roomCode, username, onLevelComplete, on
         </div>
       )}
 
-      {/* FIX 2: Tutorial uses position:fixed so it's always centered on screen */}
-      {showTutorial && moves === 0 && (
-        <div style={{
-          position: 'fixed',
-          top: '50%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-          background: 'rgba(26,26,46,0.98)',
-          border: '1px solid rgba(52,152,219,0.3)',
-          borderRadius: 16,
-          padding: '24px 28px',
-          zIndex: 9999,
-          width: '85%',
-          maxWidth: 320,
-          textAlign: 'center',
-          boxShadow: '0 10px 60px rgba(0,0,0,0.9)',
-          backdropFilter: 'blur(12px)',
-          animation: 'fadeInScale 0.4s ease forwards',
-        }}>
-          <div style={{ fontSize: 28, marginBottom: 12 }}>🎮</div>
-          <div style={{
-            fontFamily: 'Orbitron, monospace', color: '#fff',
-            fontSize: 13, fontWeight: 900, marginBottom: 10, letterSpacing: 2,
-          }}>
-            HOW TO PLAY
-          </div>
-          <p style={{ color: '#9CA3AF', fontSize: 13, lineHeight: 1.7, marginBottom: 20 }}>
-            Tap colors below to change the{' '}
-            <strong style={{ color: '#3498DB' }}>top-left</strong>{' '}
-            cell and its matching neighbors.<br />
-            Fill the entire board with one color!
-          </p>
-          <button onClick={dismissTutorial} style={{
-            background: 'linear-gradient(135deg, #3498DB, #2980B9)',
-            color: '#fff', border: 'none',
-            borderRadius: 10, padding: '10px 28px',
-            fontSize: 12, fontWeight: 800, cursor: 'pointer',
-            letterSpacing: 1.5, fontFamily: 'Orbitron, monospace',
-            boxShadow: '0 4px 16px rgba(52,152,219,0.4)',
-          }}>
-            GOT IT!
-          </button>
-        </div>
-      )}
-
-      {/* Dim backdrop behind tutorial */}
-      {showTutorial && moves === 0 && (
-        <div
-          onClick={dismissTutorial}
-          style={{
-            position: 'fixed', inset: 0,
-            background: 'rgba(0,0,0,0.6)',
-            zIndex: 9998,
-          }}
-        />
-      )}
-
       {/* Color palette */}
       <div style={{
-        display: 'flex', flexWrap: 'wrap', gap: NUM_COLORS > 12 ? 6 : 10, padding: '10px 16px',
+        display: 'flex', flexWrap: 'wrap',
+        gap: NUM_COLORS > 12 ? 6 : 10,
+        padding: '10px 16px',
         background: '#1A1A2E', borderRadius: 20, marginTop: 4,
         border: '1px solid rgba(255,255,255,0.04)',
-        justifyContent: 'center', maxWidth: '95%'
+        justifyContent: 'center', maxWidth: '95%',
       }}>
         {COLORS.slice(0, NUM_COLORS).map((color, i) => {
           const isActive = grid && grid[0][0] === i
           const isLast = lastColor === i
           return (
             <button key={i} onClick={() => handleColorPick(i)} style={{
-              width: NUM_COLORS > 12 ? 30 : 40, height: NUM_COLORS > 12 ? 30 : 40, borderRadius: '50%',
+              width: NUM_COLORS > 12 ? 30 : 40,
+              height: NUM_COLORS > 12 ? 30 : 40,
+              borderRadius: '50%',
               background: color, border: 'none', cursor: 'pointer',
               transform: isActive ? 'scale(1.22)' : 'scale(1)',
-              boxShadow: isActive ? `0 0 0 2.5px rgba(255,255,255,0.75), 0 0 12px ${color}` :
-                isLast ? `0 0 0 1.5px rgba(255,255,255,0.3)` : `0 2px 8px rgba(0,0,0,0.4)`,
+              boxShadow: isActive
+                ? `0 0 0 2.5px rgba(255,255,255,0.75), 0 0 12px ${color}`
+                : isLast
+                  ? `0 0 0 1.5px rgba(255,255,255,0.3)`
+                  : `0 2px 8px rgba(0,0,0,0.4)`,
               transition: 'transform 0.15s ease, box-shadow 0.15s ease',
               position: 'relative',
               outline: 'none',
             }}>
               {isActive && (
                 <span style={{
-                  position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  position: 'absolute', inset: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
                   <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'rgba(255,255,255,0.85)' }} />
                 </span>
@@ -363,7 +410,6 @@ export default function ColorFloodGame({ roomCode, username, onLevelComplete, on
         Tap a color to flood from top-left ↖
       </div>
 
-      {/* Overlays */}
       {gameState === 'won' && (
         <WinScreen
           level={levelIndex + 1}
