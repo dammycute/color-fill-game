@@ -177,7 +177,15 @@ export default function ColorFloodGame({ roomCode, username, onLevelComplete, on
     }
   }
 
-  const [levelIndex, setLevelIndex] = useState(0)
+  const [levelIndex, setLevelIndex] = useState(() => {
+    if (typeof window === 'undefined') return 0
+    const saved = localStorage.getItem(`cf_level_${roomCode}`)
+    if (saved !== null) {
+      const parsed = parseInt(saved, 10)
+      if (!isNaN(parsed) && parsed >= 0 && parsed < LEVELS.length) return parsed
+    }
+    return 0
+  })
   const [grid, setGrid] = useState(null)
   const [moves, setMoves] = useState(0)
   const [gameState, setGameState] = useState('playing')
@@ -216,6 +224,11 @@ export default function ColorFloodGame({ roomCode, username, onLevelComplete, on
       window.removeEventListener('resize', measure)
     }
   }, [])
+
+  // Persist level progress
+  useEffect(() => {
+    localStorage.setItem(`cf_level_${roomCode}`, levelIndex.toString())
+  }, [levelIndex, roomCode])
 
   useEffect(() => {
     const tutorialSeen = localStorage.getItem('cf_tutorial_done')
