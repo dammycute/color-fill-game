@@ -299,6 +299,7 @@ export default function GameRoomPage() {
           <ColorFloodGame
             key={`${code}-${gameKey}`}
             roomCode={code}
+            roomId={roomId}
             username={username}
             onLevelComplete={handleLevelComplete}
             onMenu={handleLobby}

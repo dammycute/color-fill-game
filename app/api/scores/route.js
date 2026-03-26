@@ -52,3 +52,30 @@ export async function POST(req) {
     return NextResponse.json({ error: 'Failed to submit score' }, { status: 500 })
   }
 }
+
+export async function GET(req) {
+  try {
+    const { searchParams } = new URL(req.url)
+    const roomId = searchParams.get('roomId')
+    const username = searchParams.get('username')
+
+    if (!roomId || !username) {
+      return NextResponse.json({ error: 'Missing roomId or username' }, { status: 400 })
+    }
+
+    const supabase = createServerClient()
+
+    const { data } = await supabase
+      .from('scores')
+      .select('level')
+      .eq('room_id', roomId)
+      .eq('username', username)
+      .order('level', { ascending: false })
+      .limit(1)
+      .single()
+
+    return NextResponse.json({ maxLevel: data?.level || 0 })
+  } catch {
+    return NextResponse.json({ maxLevel: 0 })
+  }
+}

@@ -170,7 +170,7 @@ const secondaryBtn = {
   borderRadius: 12, padding: '12px 24px', fontSize: 14, cursor: 'pointer',
 }
 
-export default function ColorFloodGame({ roomCode, username, onLevelComplete, onMenu }) {
+export default function ColorFloodGame({ roomCode, roomId, username, onLevelComplete, onMenu }) {
   const handleMenuClick = () => {
     if (window.confirm('Leave this room? Your session will be cleared.')) {
       onMenu()
@@ -229,6 +229,20 @@ export default function ColorFloodGame({ roomCode, username, onLevelComplete, on
   useEffect(() => {
     localStorage.setItem(`cf_level_${roomCode}`, levelIndex.toString())
   }, [levelIndex, roomCode])
+
+  // Restore from server (for returning players who had scores saved)
+  useEffect(() => {
+    if (!roomId || !username) return
+    fetch(`/api/scores?roomId=${roomId}&username=${encodeURIComponent(username)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.maxLevel && data.maxLevel > 0) {
+          const serverIndex = Math.min(data.maxLevel, LEVELS.length - 1)
+          setLevelIndex(prev => Math.max(prev, serverIndex))
+        }
+      })
+      .catch(() => {}) // silent fail — localStorage is the fallback
+  }, [roomId, username])
 
   useEffect(() => {
     const tutorialSeen = localStorage.getItem('cf_tutorial_done')
