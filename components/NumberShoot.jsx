@@ -29,6 +29,14 @@ function getTileStyle(val) {
     return TILE_COLORS[val] || { bg: '#3498DB', text: '#FFFFFF' }
 }
 
+function formatNumber(num) {
+    if (num < 10000) return num.toString();
+    const suffixes = ['', 'K', 'M', 'B', 'T', 'aa', 'bb', 'cc', 'dd', 'ee', 'ff'];
+    const exp = Math.floor(Math.log10(num) / 3);
+    const shortValue = (num / Math.pow(1000, exp)).toFixed(exp > 0 ? 1 : 0);
+    return (shortValue.endsWith('.0') ? shortValue.slice(0, -2) : shortValue) + suffixes[exp];
+}
+
 function makeRng(seed) {
     let s = 0
     const str = seed.toString()
@@ -43,28 +51,36 @@ function makeRng(seed) {
 }
 
 function randomVal(rng, maxTile = 2) {
-    // Stricter threshold: only allow shooting tiles up to 1/8th of the current max
-    const threshold = Math.max(8, maxTile / 8)
+    // 1/4th rule: shoot tiles up to 25% of your max
+    const threshold = Math.max(8, maxTile / 4)
     
-    // Base proportion of low numbers to keep the board challenging but populateable
-    const options = [2, 2, 2, 2, 4, 4, 4, 4, 8, 8, 8, 16, 16]
+    // Phase out smaller tiles: keep only the top 6 power-of-2 levels available
+    // e.g. if threshold is 256, min is 8. Options: 8, 16, 32, 64, 128, 256.
+    const minVal = Math.max(2, threshold / 32)
     
-    // Dynamically add all powers of 2 beyond 16 up to the threshold
-    let current = 32
+    const options = []
+    let current = minVal
     while (current <= threshold) {
-        options.push(current)
+        // More weight on the smaller numbers in our current range for balance
+        let weight = 1
+        if (current === minVal) weight = 5
+        else if (current === minVal * 2) weight = 3
+        else if (current === minVal * 4) weight = 2
+        
+        for (let i = 0; i < weight; i++) {
+            options.push(current)
+        }
         current *= 2
     }
     
-    const valid = options.filter(v => v <= threshold)
-    return valid[Math.floor(rng() * valid.length)]
+    return options[Math.floor(rng() * options.length)]
 }
 
 function getMaxTile(board) {
     let max = 2
     for (const row of board)
         for (const cell of row)
-            if (cell !== null && cell > max) max = cell
+            if (cell !== null && cell.val > max) max = cell.val
     return max
 }
 
@@ -73,8 +89,8 @@ function createBoard() {
 }
 
 function findConnectedGroup(board, startR, startC) {
-    const val = board[startR][startC]
-    if (val === null) return []
+    if (board[startR][startC] === null) return []
+    const val = board[startR][startC].val
     const visited = new Set()
     const stack = [[startR, startC]]
     const group = []
@@ -83,7 +99,7 @@ function findConnectedGroup(board, startR, startC) {
         const key = `${r},${c}`
         if (visited.has(key)) continue
         if (r < 0 || r >= ROWS || c < 0 || c >= COLS) continue
-        if (board[r][c] !== val) continue
+        if (board[r][c] === null || board[r][c].val !== val) continue
         visited.add(key)
         group.push([r, c])
         stack.push([r + 1, c], [r - 1, c], [r, c + 1], [r, c - 1])
@@ -123,32 +139,17 @@ function settleBoardOnce(board, newestR, newestC) {
         }
     }
 
-    if (bestGroup) {
-        const val = currentBoard[bestGroup[0][0]][bestGroup[0][1]]
-        const mergedVal = val * Math.pow(2, bestGroup.length - 1)
-        scoreGained += mergedVal
+    let resultR = -1, resultC = -1
+    return { newBoard: currentBoard, scoreGained, changed, bestGroup, bestContainsNewest }
+}
 
-        let resultR = -1, resultC = -1
-        if (bestContainsNewest) {
-            resultR = newestR; resultC = newestC
-        } else {
-            for (const [r, c] of bestGroup) {
-                if (resultR === -1 || r < resultR || (r === resultR && c < resultC)) {
-                    resultR = r; resultC = c
-                }
-            }
-        }
-
-        for (const [r, c] of bestGroup) currentBoard[r][c] = null
-        currentBoard[resultR][resultC] = mergedVal
-        changed = true
-    }
-
-    // Upward Gravity: Push everything up to fill gaps
+function applyGravity(board) {
+    let currentBoard = board.map(row => [...row])
+    let changed = false
     for (let c = 0; c < COLS; c++) {
         let writeY = 0
         for (let r = 0; r < ROWS; r++) {
-            if (currentBoard[r][c] !== null) {
+            if (currentBoard[r][c] !== null && currentBoard[r][c].status !== 'breaking') {
                 if (r !== writeY) {
                     currentBoard[writeY][c] = currentBoard[r][c]
                     currentBoard[r][c] = null
@@ -158,11 +159,10 @@ function settleBoardOnce(board, newestR, newestC) {
             }
         }
     }
-
-    return { newBoard: currentBoard, scoreGained, changed, mergeR: -1, mergeC: -1 }
+    return { newBoard: currentBoard, changed }
 }
 
-function Tile({ value, size, isNew }) {
+function Tile({ value, size, isNew, status }) {
     const [popped, setPopped] = useState(false)
     useEffect(() => {
         if (isNew) {
@@ -189,14 +189,21 @@ function Tile({ value, size, isNew }) {
             boxShadow: `0 2px 6px ${style.bg}88`,
             transform: popped ? 'scale(1.08)' : 'scale(1)',
             transition: 'transform 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275), background 0.15s ease',
+            animation: status === 'breaking' ? 'breakAnim 0.4s forwards' : status === 'merging' ? 'mergeAnim 0.3s forwards' : isNew ? 'spawnAnim 0.2s forwards' : 'none'
         }}>
-            <span style={{ fontSize, fontWeight: 900, color: style.text, fontFamily: 'Orbitron, monospace' }}>{value}</span>
+            <span style={{ fontSize, fontWeight: 900, color: style.text, fontFamily: 'Orbitron, monospace' }}>{formatNumber(value)}</span>
         </div>
     )
 }
 
 export default function NumberShootGame({ roomCode = 'SOLO_SHOOT', onMenu }) {
     const rngRef = useRef(null)
+    const idRef = useRef(0)
+    const nextId = useCallback(() => {
+        idRef.current += 1
+        return `t-${idRef.current}`
+    }, [])
+
     const [board, setBoard] = useState(createBoard)
     const [score, setScore] = useState(0)
     const [level, setLevel] = useState(1)
@@ -252,14 +259,69 @@ export default function NumberShootGame({ roomCode = 'SOLO_SHOOT', onMenu }) {
         return () => window.removeEventListener('resize', measure)
     }, [gameStarted])
 
-    function startGame() {
+    // --- Persistence Logic ---
+    const SOLO_SAVE_KEY = 'NUMBER_SHOOT_SOLO_DATA_' + roomCode
+    
+    // Save state on change
+    useEffect(() => {
+        if (!gameStarted || gameOver || roomCode !== 'SOLO_SHOOT') return
+        const data = {
+            board, score, level, goalTile, nextVal,
+            idCounter: idRef.current,
+            timestamp: Date.now()
+        }
+        localStorage.setItem(SOLO_SAVE_KEY, JSON.stringify(data))
+    }, [board, score, level, goalTile, nextVal, gameStarted, gameOver, roomCode, SOLO_SAVE_KEY])
+
+    // Clear on game over
+    useEffect(() => {
+       if (gameOver && roomCode === 'SOLO_SHOOT') {
+           localStorage.removeItem(SOLO_SAVE_KEY)
+       }
+    }, [gameOver, roomCode, SOLO_SAVE_KEY])
+
+    // Restoration
+    const [hasSave, setHasSave] = useState(false)
+    useEffect(() => {
+        if (roomCode === 'SOLO_SHOOT') {
+            const saved = localStorage.getItem(SOLO_SAVE_KEY)
+            if (saved) setHasSave(true)
+        }
+    }, [roomCode, SOLO_SAVE_KEY])
+
+    function resumeGame() {
+        const saved = localStorage.getItem(SOLO_SAVE_KEY)
+        if (saved) {
+            try {
+                const data = JSON.parse(saved)
+                initRng(roomCode + data.timestamp)
+                setBoard(data.board)
+                setScore(data.score)
+                setLevel(data.level)
+                setGoalTile(data.goalTile)
+                setNextVal(data.nextVal)
+                idRef.current = data.idCounter || 1000
+                setGameStarted(true)
+            } catch (e) {
+                console.error('Failed to restore save', e)
+                startGame(true)
+            }
+        }
+    }
+
+    function startGame(fresh = true) {
+        if (!fresh && hasSave) {
+            resumeGame()
+            return
+        }
         initRng(roomCode + Date.now())
         const newBoard = createBoard()
         // Pre-fill columns from the top down (2-4 tiles per column)
         for (let c = 0; c < COLS; c++) {
             const count = 2 + Math.floor(Math.random() * 3)
             for (let r = 0; r < count; r++) {
-                newBoard[r][c] = [2, 4, 8, 16, 32][Math.floor(Math.random() * 5)]
+                const val = [2, 4, 8, 16, 32][Math.floor(Math.random() * 5)]
+                newBoard[r][c] = { id: nextId(), val, status: 'idle' }
             }
         }
         setBoard(newBoard)
@@ -299,51 +361,108 @@ export default function NumberShootGame({ roomCode = 'SOLO_SHOOT', onMenu }) {
         }
 
         setIsShooting(true)
-        setShotPiece({ r: ROWS, c: col, val: nextVal }) // Start below board
+        setShotPiece({ r: ROWS, c: col, val: nextVal, id: nextId() }) // Start below board
 
         // Animation: Shot travels from shooter to landRow
         setTimeout(() => {
-            setShotPiece({ r: landRow, c: col, val: nextVal })
+            setShotPiece(p => ({ ...p, r: landRow }))
             setTimeout(() => {
                 finalizeShot(landRow, col, nextVal)
             }, 100)
         }, 50)
-    }, [gameStarted, gameOver, isShooting, board, shooterCol, nextVal])
+    }, [gameStarted, gameOver, isShooting, board, shooterCol, nextVal, nextId])
 
     function finalizeShot(row, col, value) {
         setShotPiece(null)
         setNewTilePos({ r: row, c: col })
         
-        // Use a local board to calculate all merges for immediate state sync,
-        // but still use a stepping loop for animation.
         setBoard(prev => {
             const nextBoard = prev.map(r => [...r])
-            nextBoard[row][col] = value
-
-            let current = nextBoard
-            let newestR = row, newestC = col
-            let iterations = 0
+            nextBoard[row][col] = { id: nextId(), val: value, status: 'idle' }
 
             const runSettleStep = (boardState, r, c, iter) => {
-                const { newBoard: settled, scoreGained, changed, mergeR, mergeC } = settleBoardOnce(boardState, r, c)
-                if (changed && iter < 20) {
-                    setScore(s => s + scoreGained)
-                    if (scoreGained > 0 && mergeR !== -1) {
-                         setNewTilePos({ r: mergeR, c: mergeC })
-                    }
-                    setBoard(settled.map(rowArr => [...rowArr]))
-                    setTimeout(() => runSettleStep(settled, mergeR === -1 ? r : mergeR, mergeC === -1 ? c : mergeC, iter + 1), 120)
+                const { bestGroup, bestContainsNewest } = settleBoardOnce(boardState, r, c)
+                
+                if (bestGroup && iter < 30) {
+                    // Phase 1: Mark group as merging
+                    const mergingBoard = boardState.map(gridRow => gridRow.map(cell => cell ? { ...cell } : null))
+                    bestGroup.forEach(([gr, gc]) => {
+                        if (mergingBoard[gr][gc]) mergingBoard[gr][gc].status = 'merging'
+                    })
+                    setBoard(mergingBoard)
+
+                    // Phase 2: After animation, actually merge
+                    setTimeout(() => {
+                        const postMergeBoard = boardState.map(gridRow => gridRow.map(cell => cell ? { ...cell } : null))
+                        const val = postMergeBoard[bestGroup[0][0]][bestGroup[0][1]].val
+                        const mergedVal = val * Math.pow(2, bestGroup.length - 1)
+                        setScore(s => s + mergedVal)
+
+                        let resultR = -1, resultC = -1
+                        if (bestContainsNewest) {
+                            resultR = r; resultC = c
+                        } else {
+                            for (const [gr, gc] of bestGroup) {
+                                if (resultR === -1 || gr < resultR || (gr === resultR && gc < resultC)) {
+                                    resultR = gr; resultC = gc
+                                }
+                            }
+                        }
+
+                        // Remove components and place result
+                        bestGroup.forEach(([gr, gc]) => postMergeBoard[gr][gc] = null)
+                        postMergeBoard[resultR][resultC] = { id: nextId(), val: mergedVal, status: 'idle' }
+                        setNewTilePos({ r: resultR, c: resultC })
+
+                        // Gravity
+                        const { newBoard: gravityBoard } = applyGravity(postMergeBoard)
+                        setBoard(gravityBoard)
+                        
+                        setTimeout(() => runSettleStep(gravityBoard, resultR, resultC, iter + 1), 200)
+                    }, 250)
                 } else {
-                    // Check game over only after everything is settled
-                    const isGameOver = settled[ROWS - 1].some(cell => cell !== null)
-                    if (isGameOver) setGameOver(true)
-                    setNextVal(getNextVal(settled))
-                    setIsShooting(false)
-                    setNewTilePos(null)
+                    // Check for "breaking" tiles (val < minVal)
+                    const max = getMaxTile(boardState)
+                    const threshold = Math.max(8, max / 4)
+                    const minValLimit = Math.max(2, threshold / 32)
+                    
+                    let breakIndices = []
+                    for(let br=0; br<ROWS; br++) {
+                        for(let bc=0; bc<COLS; bc++) {
+                            if (boardState[br][bc] && boardState[br][bc].val < minValLimit) {
+                                breakIndices.push([br, bc])
+                            }
+                        }
+                    }
+
+                    if (breakIndices.length > 0) {
+                        const breakingBoard = boardState.map(gridRow => gridRow.map(cell => cell ? { ...cell } : null))
+                        breakIndices.forEach(([br, bc]) => {
+                             breakingBoard[br][bc].status = 'breaking'
+                        })
+                        setBoard(breakingBoard)
+
+                        setTimeout(() => {
+                            const postBreakBoard = boardState.map(gridRow => gridRow.map(cell => cell ? { ...cell } : null))
+                            breakIndices.forEach(([br, bc]) => postBreakBoard[br][bc] = null)
+                            const { newBoard: finalBoard } = applyGravity(postBreakBoard)
+                            setBoard(finalBoard)
+                            finishStep(finalBoard)
+                        }, 400)
+                    } else {
+                        finishStep(boardState)
+                    }
                 }
             }
 
-            // Small delay before first settle step for player perception
+            const finishStep = (finalBoard) => {
+                const isGameOver = finalBoard[ROWS - 1].some(cell => cell !== null)
+                if (isGameOver) setGameOver(true)
+                setNextVal(getNextVal(finalBoard))
+                setIsShooting(false)
+                setNewTilePos(null)
+            }
+
             setTimeout(() => runSettleStep(nextBoard, row, col, 0), 100)
             return nextBoard
         })
@@ -365,7 +484,10 @@ export default function NumberShootGame({ roomCode = 'SOLO_SHOOT', onMenu }) {
                         <div style={{ fontSize: 24, fontWeight: 900, color: '#F1C40F', fontFamily: 'Orbitron, monospace', textShadow: '0 0 10px rgba(241, 196, 15, 0.5)' }}>2048</div>
                     </div>
                 </div>
-                <button onClick={startGame} style={primaryBtn}>PLAY NOW</button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {hasSave && <button onClick={() => startGame(false)} style={primaryBtn}>CONTINUE</button>}
+                    <button onClick={() => startGame(true)} style={hasSave ? secondaryBtn : primaryBtn}>{hasSave ? 'New Game' : 'PLAY NOW'}</button>
+                </div>
                 {onMenu && <button onClick={onMenu} style={secondaryBtn}>← Back</button>}
             </div>
         )
@@ -395,6 +517,19 @@ export default function NumberShootGame({ roomCode = 'SOLO_SHOOT', onMenu }) {
                     80% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
                     100% { opacity: 0; transform: translate(-50%, -60%) scale(0.9); }
                 }
+                @keyframes breakAnim {
+                    0% { transform: scale(1); opacity: 1; }
+                    100% { transform: scale(0) rotate(45deg); opacity: 0; }
+                }
+                @keyframes mergeAnim {
+                    0% { transform: scale(1); }
+                    50% { transform: scale(0.8); }
+                    100% { transform: scale(1.2); opacity: 0.5; }
+                }
+                @keyframes spawnAnim {
+                    0% { transform: scale(0); opacity: 0; }
+                    100% { transform: scale(1); opacity: 1; }
+                }
             `}</style>
             
             {/* Header */}
@@ -423,9 +558,18 @@ export default function NumberShootGame({ roomCode = 'SOLO_SHOOT', onMenu }) {
 
                     {/* Settled tiles */}
                     {board.map((row, r) =>
-                        row.map((val, c) => val !== null ? (
-                            <div key={`${r}-${c}`} style={{ position: 'absolute', top: r * (cellSize + GAP) + GAP, left: c * (cellSize + GAP) + GAP, width: cellSize, height: cellSize }}>
-                                <Tile value={val} size={cellSize} isNew={newTilePos?.r === r && newTilePos?.c === c} />
+                        row.map((tile, c) => tile !== null ? (
+                            <div 
+                                key={tile.id} 
+                                style={{ 
+                                    position: 'absolute', 
+                                    top: r * (cellSize + GAP) + GAP, 
+                                    left: c * (cellSize + GAP) + GAP, 
+                                    width: cellSize, height: cellSize,
+                                    transition: 'top 0.2s cubic-bezier(0.2, 0, 0.2, 1), left 0.1s ease-out'
+                                }}
+                            >
+                                <Tile value={tile.val} size={cellSize} isNew={newTilePos?.r === r && newTilePos?.c === c} status={tile.status} />
                             </div>
                         ) : null)
                     )}
@@ -453,7 +597,7 @@ export default function NumberShootGame({ roomCode = 'SOLO_SHOOT', onMenu }) {
                         }}>
                             LEVEL UP!<br/>
                             <span style={{ fontSize: 16, color: '#fff', letterSpacing: 1 }}>NEXT GOAL: </span>
-                            <span style={{ fontSize: 24, color: getTileStyle(goalTile).text === '#1A1A2E' ? getTileStyle(goalTile).bg : getTileStyle(goalTile).bg, textShadow: `0 0 10px ${getTileStyle(goalTile).bg}88` }}>{goalTile}</span>
+                            <span style={{ fontSize: 24, color: getTileStyle(goalTile).text === '#1A1A2E' ? getTileStyle(goalTile).bg : getTileStyle(goalTile).bg, textShadow: `0 0 10px ${getTileStyle(goalTile).bg}88` }}>{formatNumber(goalTile)}</span>
                         </div>
                     )}
 
@@ -470,7 +614,7 @@ export default function NumberShootGame({ roomCode = 'SOLO_SHOOT', onMenu }) {
                             zIndex: 20, display: 'flex', alignItems: 'center', justifyContent: 'center',
                             boxShadow: `0 0 20px ${getTileStyle(shotPiece.val).bg}`
                         }}>
-                             <span style={{ fontSize: Math.floor(cellSize * 0.4), fontWeight: 900, color: getTileStyle(shotPiece.val).text, fontFamily: 'Orbitron, monospace' }}>{shotPiece.val}</span>
+                             <span style={{ fontSize: Math.floor(cellSize * 0.4), fontWeight: 900, color: getTileStyle(shotPiece.val).text, fontFamily: 'Orbitron, monospace' }}>{formatNumber(shotPiece.val)}</span>
                         </div>
                     )}
 
@@ -487,7 +631,7 @@ export default function NumberShootGame({ roomCode = 'SOLO_SHOOT', onMenu }) {
                             zIndex: 15, display: 'flex', alignItems: 'center', justifyContent: 'center',
                             boxShadow: `0 0 15px ${shooterStyle.bg}77`
                         }}>
-                            <span style={{ fontSize: Math.floor(cellSize * 0.4), fontWeight: 900, color: shooterStyle.text, fontFamily: 'Orbitron, monospace' }}>{nextVal}</span>
+                            <span style={{ fontSize: Math.floor(cellSize * 0.4), fontWeight: 900, color: shooterStyle.text, fontFamily: 'Orbitron, monospace' }}>{formatNumber(nextVal)}</span>
                         </div>
                     )}
                 </div>
