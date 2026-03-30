@@ -29,6 +29,7 @@ function JoinForm() {
       localStorage.setItem('cf_username', data.username)
       localStorage.setItem('cf_room_code', data.code)
       localStorage.setItem('cf_room_id', data.roomId)
+      localStorage.setItem('cf_game', data.game || 'colorflood')
       localStorage.removeItem('cf_is_creator')
 
       router.push(`/room/${data.code}`)
@@ -50,7 +51,7 @@ function JoinForm() {
         padding: '40px 36px', width: '100%', maxWidth: 420,
         animation: 'fadeInScale 0.35s ease forwards',
       }}>
-        <button onClick={() => router.push('/')} style={{
+        <button onClick={() => router.push('/select-game')} style={{
           background: 'none', border: 'none', color: '#4B5563',
           fontSize: 13, cursor: 'pointer', marginBottom: 24,
         }}>

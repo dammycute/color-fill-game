@@ -18,7 +18,6 @@ export async function POST(req) {
 
     const supabase = createServerClient()
 
-    // Get room
     const { data: room, error: roomError } = await supabase
       .from('rooms')
       .select('*')
@@ -36,16 +35,14 @@ export async function POST(req) {
     if (new Date(room.expires_at) < new Date()) {
       return NextResponse.json({ error: 'This room has expired.' }, { status: 410 })
     }
-    
-    // Check player count
+
     const { count, error: countError } = await supabase
       .from('players')
       .select('id', { count: 'exact', head: true })
       .eq('room_id', room.id)
-    
+
     if (countError) throw countError
 
-    // Check if player is already in room (idempotent Join)
     const { data: existing } = await supabase
       .from('players')
       .select('id')
@@ -59,15 +56,14 @@ export async function POST(req) {
         username: cleanUsername,
         code: room.code,
         creatorUsername: room.creator_username,
+        game: room.game || 'colorflood',
       })
     }
 
-    // New player join limit
     if (count >= 20) {
       return NextResponse.json({ error: 'This room is full (max 20 players).' }, { status: 403 })
     }
 
-    // Add player
     const { error: joinError } = await supabase
       .from('players')
       .insert({ room_id: room.id, username: cleanUsername })
@@ -84,6 +80,7 @@ export async function POST(req) {
       username: cleanUsername,
       code: room.code,
       creatorUsername: room.creator_username,
+      game: room.game || 'colorflood',
     })
   } catch (err) {
     console.error('Join room error:', err)

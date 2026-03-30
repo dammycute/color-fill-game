@@ -3,8 +3,16 @@ import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter, notFound } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import ColorFloodGame from '@/components/ColorFloodGame'
+import NumberDropGame from '@/components/NumberDrop'
+import NumberShootGame from '@/components/NumberShoot'
 import Leaderboard from '@/components/Leaderboard'
 import { LEVELS } from '@/lib/gameLogic'
+
+const GAME_INFO = {
+  colorflood: { emoji: '🌊', label: 'COLOR FLOOD', color: '#3498DB' },
+  numberdrop: { emoji: '🔢', label: 'NUMBER DROP', color: '#9B59B6' },
+  numbershoot: { emoji: '🏹', label: 'NUMBER SHOOT', color: '#1ABC9C' },
+}
 
 function CopyButton({ text }) {
   const [copied, setCopied] = useState(false)
@@ -41,15 +49,15 @@ export default function GameRoomPage() {
   const [loading, setLoading] = useState(true)
   const [roomClosed, setRoomClosed] = useState(false)
   const [closing, setClosing] = useState(false)
-  const [showLeaderboard, setShowLeaderboard] = useState(false)
   const [gameKey, setGameKey] = useState(0)
+  const [selectedGame, setSelectedGame] = useState('colorflood')
 
-  // Load from localStorage and verify room
   useEffect(() => {
     const storedCode = localStorage.getItem('cf_room_code')
     const storedUsername = localStorage.getItem('cf_username')
     const storedRoomId = localStorage.getItem('cf_room_id')
     const storedCreator = localStorage.getItem('cf_is_creator')
+    const storedGame = localStorage.getItem('cf_game') || 'colorflood'
 
     if (!storedUsername || storedCode !== code) {
       router.push(`/room/join?code=${code}`)
@@ -59,8 +67,8 @@ export default function GameRoomPage() {
     setUsername(storedUsername)
     setRoomId(storedRoomId)
     setIsCreator(storedCreator === '1')
+    setSelectedGame(storedGame)
 
-    // Verify room is still active
     fetch(`/api/rooms?code=${code}`)
       .then(r => r.json())
       .then(async data => {
@@ -71,12 +79,17 @@ export default function GameRoomPage() {
           return
         }
 
-        // Ensure we are in the players table (re-join if refreshed)
         await fetch('/api/join', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ code: data.code, username: storedUsername }),
         })
+
+        // Sync game from server if available
+        if (data.game) {
+          setSelectedGame(data.game)
+          localStorage.setItem('cf_game', data.game)
+        }
 
         setRoom(data)
         setPlayerCount(data.playerCount)
@@ -85,7 +98,6 @@ export default function GameRoomPage() {
       .catch(() => router.push('/'))
   }, [code])
 
-  // Realtime: room status + player count
   useEffect(() => {
     if (!roomId) return
 
@@ -131,7 +143,6 @@ export default function GameRoomPage() {
         body: JSON.stringify({ roomId, username, level, movesUsed, stars }),
       })
     } catch {
-      // Retry silently
       setTimeout(() => fetch('/api/scores', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -140,10 +151,27 @@ export default function GameRoomPage() {
     }
   }, [roomId, username])
 
+  // Number Drop score submission: uses level=1, movesUsed=score, stars based on score
+  const handleNumberDropScore = useCallback(async (score, maxTile) => {
+    if (!roomId || !username) return
+    const stars = score >= 10000 ? 3 : score >= 5000 ? 2 : 1
+    try {
+      await fetch('/api/scores', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomId, username, level: 1, movesUsed: score, stars }),
+      })
+    } catch {
+      setTimeout(() => fetch('/api/scores', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomId, username, level: 1, movesUsed: score, stars }),
+      }), 2000)
+    }
+  }, [roomId, username])
+
   const handleLeave = useCallback(async () => {
     if (!roomId || !username) return
-    
-    // Use sendBeacon or keepalive fetch for reliability on close
     fetch('/api/leave', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -170,7 +198,6 @@ export default function GameRoomPage() {
     handleLobby()
   }
 
-  // Cleanup on unmount/close
   useEffect(() => {
     const onUnload = () => { handleLeave() }
     window.addEventListener('beforeunload', onUnload)
@@ -187,7 +214,7 @@ export default function GameRoomPage() {
     }}>
       <div style={{
         fontFamily: 'Orbitron, monospace', color: '#3498DB', fontSize: 13,
-        letterSpacing: 3, animation: 'pulse-glow 1.5s ease-in-out infinite',
+        letterSpacing: 3,
       }}>LOADING...</div>
     </div>
   )
@@ -208,6 +235,7 @@ export default function GameRoomPage() {
   )
 
   const shareUrl = typeof window !== 'undefined' ? `${window.location.origin}/room/join?code=${code}` : ''
+  const gameInfo = GAME_INFO[selectedGame] || GAME_INFO.colorflood
 
   return (
     <div style={{
@@ -222,7 +250,17 @@ export default function GameRoomPage() {
         position: 'sticky', top: 0, zIndex: 100,
         flexWrap: 'wrap', gap: 10,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {/* Game badge */}
+          <div style={{
+            background: `rgba(${selectedGame === 'colorflood' ? '52,152,219' : '155,89,182'},0.1)`,
+            border: `1px solid ${gameInfo.color}33`,
+            borderRadius: 8, padding: '4px 10px',
+            fontSize: 11, color: gameInfo.color,
+            fontFamily: 'Orbitron, monospace', fontWeight: 700, letterSpacing: 1,
+          }}>
+            {gameInfo.emoji} {gameInfo.label}
+          </div>
           {/* Room code */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 11, color: '#4B5563', letterSpacing: 1 }}>ROOM</span>
@@ -244,7 +282,6 @@ export default function GameRoomPage() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {/* Username badge */}
           <div style={{
             background: '#0F0F1A', border: '1px solid rgba(52,152,219,0.2)',
             borderRadius: 20, padding: '4px 12px',
@@ -252,21 +289,6 @@ export default function GameRoomPage() {
           }}>
             {username} {isCreator && <span style={{ color: '#F39C12', fontSize: 10 }}>★</span>}
           </div>
-
-          {/* Mobile leaderboard toggle */}
-          <button
-            onClick={() => setShowLeaderboard(l => !l)}
-            style={{
-              display: 'none',
-              background: '#1A1A2E', border: '1px solid rgba(255,255,255,0.06)',
-              borderRadius: 8, padding: '6px 12px', color: '#D1D5DB',
-              fontSize: 12, cursor: 'pointer',
-              ['@media(max-width:768px)']: { display: 'block' },
-            }}
-            className="lg:hidden"
-          >
-            🏆
-          </button>
 
           {isCreator && (
             <button onClick={handleCloseRoom} disabled={closing} style={{
@@ -287,7 +309,7 @@ export default function GameRoomPage() {
         gap: 20, padding: '20px',
         maxWidth: 1100, margin: '0 auto',
       }}
-      className="room-layout"
+        className="room-layout"
       >
         {/* Game area */}
         <div style={{
@@ -296,19 +318,45 @@ export default function GameRoomPage() {
           overflow: 'hidden', minHeight: 500,
           display: 'flex', flexDirection: 'column',
         }}>
-          <ColorFloodGame
-            key={`${code}-${gameKey}`}
-            roomCode={code}
-            roomId={roomId}
-            username={username}
-            onLevelComplete={handleLevelComplete}
-            onMenu={handleLobby}
-          />
+          {selectedGame === 'colorflood' && (
+            <ColorFloodGame
+              key={`${code}-${gameKey}`}
+              roomCode={code}
+              roomId={roomId}
+              username={username}
+              onLevelComplete={handleLevelComplete}
+              onMenu={handleLobby}
+            />
+          )}
+          {selectedGame === 'numberdrop' && (
+            <NumberDropGame
+              key={`${code}-${gameKey}`}
+              roomCode={code}
+              roomId={roomId}
+              username={username}
+              onGameOver={handleNumberDropScore}
+              onMenu={handleLobby}
+            />
+          )}
+          {selectedGame === 'numbershoot' && (
+            <NumberShootGame
+              key={`${code}-${gameKey}`}
+              roomCode={code}
+              roomId={roomId}
+              username={username}
+              onGameOver={handleNumberDropScore}
+              onMenu={handleLobby}
+            />
+          )}
         </div>
 
         {/* Leaderboard sidebar */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <Leaderboard roomId={roomId} currentUsername={username} />
+          <Leaderboard
+            roomId={roomId}
+            currentUsername={username}
+            gameMode={selectedGame}
+          />
 
           {/* Room info card */}
           <div style={{
@@ -321,6 +369,10 @@ export default function GameRoomPage() {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                <span style={{ color: '#4B5563' }}>Game</span>
+                <span style={{ color: gameInfo.color, fontWeight: 600 }}>{gameInfo.emoji} {gameInfo.label}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
                 <span style={{ color: '#4B5563' }}>Creator</span>
                 <span style={{ color: '#D1D5DB', fontWeight: 600 }}>{room?.creator_username}</span>
               </div>
@@ -330,10 +382,12 @@ export default function GameRoomPage() {
                   {room?.expires_at ? new Date(room.expires_at).toLocaleDateString() : '—'}
                 </span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                <span style={{ color: '#4B5563' }}>Levels</span>
-                <span style={{ color: '#D1D5DB' }}>{LEVELS.length} levels</span>
-              </div>
+              {selectedGame === 'colorflood' && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                  <span style={{ color: '#4B5563' }}>Levels</span>
+                  <span style={{ color: '#D1D5DB' }}>{LEVELS.length} levels</span>
+                </div>
+              )}
             </div>
             <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.04)' }}>
               <div style={{ fontSize: 10, color: '#374151', letterSpacing: 1, marginBottom: 6 }}>SHARE LINK</div>

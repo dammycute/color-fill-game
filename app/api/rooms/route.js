@@ -4,15 +4,17 @@ import { NextResponse } from 'next/server'
 
 export async function POST(req) {
   try {
-    const { username } = await req.json()
+    const { username, game = 'colorflood' } = await req.json()
     if (!username || username.trim().length < 2) {
       return NextResponse.json({ error: 'Username must be at least 2 characters' }, { status: 400 })
     }
 
+    const validGames = ['colorflood', 'numberdrop']
+    const selectedGame = validGames.includes(game) ? game : 'colorflood'
+
     const supabase = createServerClient()
     let code, attempts = 0
 
-    // Generate unique code
     do {
       code = generateRoomCode()
       const { data } = await supabase.from('rooms').select('id').eq('code', code).single()
@@ -20,20 +22,18 @@ export async function POST(req) {
       attempts++
     } while (attempts < 10)
 
-    // Create room
     const expiresAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString()
     const { data: room, error: roomError } = await supabase
       .from('rooms')
-      .insert({ code, creator_username: username.trim(), expires_at: expiresAt })
+      .insert({ code, creator_username: username.trim(), expires_at: expiresAt, game: selectedGame })
       .select()
       .single()
 
     if (roomError) throw roomError
 
-    // Add creator as player
     await supabase.from('players').insert({ room_id: room.id, username: username.trim() })
 
-    return NextResponse.json({ code: room.code, roomId: room.id })
+    return NextResponse.json({ code: room.code, roomId: room.id, game: selectedGame })
   } catch (err) {
     console.error('Create room error:', err)
     return NextResponse.json({ error: 'Failed to create room' }, { status: 500 })
